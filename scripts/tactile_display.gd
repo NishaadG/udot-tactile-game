@@ -44,6 +44,8 @@ var labels: Array = []               # [Vector2 pin position, String] helper-onl
 var _refresh_timer := 0.0
 var _flash_left := 0.0
 var _animating := true
+var _flash_phase := -1
+var _pin_tex := {}                   # colour -> pre-rendered pin sprite
 var _plate_style := StyleBoxFlat.new()
 var _label_style := StyleBoxFlat.new()
 
@@ -140,7 +142,10 @@ func _process(delta: float) -> void:
 			_animating = true
 	if _flash_left > 0.0:
 		_flash_left -= delta
-		queue_redraw()
+		var phase := -1 if _flash_left <= 0.0 else int(_flash_left / 0.09) % 2
+		if phase != _flash_phase:      # only redraw when the flash actually toggles
+			_flash_phase = phase
+			queue_redraw()
 		return
 	if not _animating:
 		return
@@ -165,8 +170,34 @@ func _draw_base(base: Node2D) -> void:
 			base.draw_circle(Vector2((x + 0.5) * pitch_px, (y + 0.5) * pitch_px), pitch_px * 0.19, C_SOCKET)
 
 
+## A raised pin (drop shadow, body, highlight) rendered once per colour, then
+## stamped as a texture: far cheaper than drawing vector circles every frame.
+func _pin_texture(col: Color) -> Texture2D:
+	var key := col.to_html()
+	if _pin_tex.has(key):
+		return _pin_tex[key]
+	var size := int(ceil(pitch_px))
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var r := pitch_px * 0.3
+	var body := Vector2(size / 2.0, size / 2.0 - 2.0)
+	var shadow := body + Vector2(1.5, 4.5)
+	var shine := body + Vector2(-0.3, -0.35) * r
+	for y in size:
+		for x in size:
+			var p := Vector2(x + 0.5, y + 0.5)
+			var out := Color(0, 0, 0, 0)
+			out = out.blend(Color(0, 0, 0, C_SHADOW.a * clampf(r - p.distance_to(shadow) + 0.5, 0, 1)))
+			out = out.blend(Color(col, clampf(r - p.distance_to(body) + 0.5, 0, 1)))
+			out = out.blend(Color(1, 1, 1, 0.38 * clampf(r * 0.32 - p.distance_to(shine) + 0.5, 0, 1)))
+			img.set_pixel(x, y, out)
+	var tex := ImageTexture.create_from_image(img)
+	_pin_tex[key] = tex
+	return tex
+
+
 func _draw() -> void:
 	var r := pitch_px * 0.3
+	var half := ceilf(pitch_px) / 2.0
 	var flash_on := _flash_left > 0.0 and int(_flash_left / 0.09) % 2 == 0
 	for y in rows:
 		for x in cols:
@@ -179,10 +210,12 @@ func _draw() -> void:
 				var col: Color = C_PIN
 				if helper and _flash_left <= 0.0:
 					col = KIND_COLORS.get(shown_kind[i], C_PIN)
-				var lift := Vector2(0, -2.0 * h)
-				draw_circle(c + Vector2(1.5, 2.5) * h, r, Color(C_SHADOW, C_SHADOW.a * h))
-				draw_circle(c + lift, r * (0.75 + 0.25 * h), col.darkened(0.35 * (1.0 - h)))
-				draw_circle(c + lift + Vector2(-0.3, -0.35) * r, r * 0.32, Color(1, 1, 1, 0.38 * h))
+				var tex := _pin_texture(col)
+				if h >= 0.99:
+					draw_texture(tex, c - Vector2(half, half))
+				else:   # rising / falling: grow in and fade
+					var sc := 0.75 + 0.25 * h
+					draw_texture_rect(tex, Rect2(c - Vector2(half, half) * sc + Vector2(0, 2.0 * (1.0 - h)), Vector2(half, half) * 2.0 * sc), false, Color(1, 1, 1, h))
 			if helper and hint[i] == 1:
 				draw_arc(c, r + 2.0, 0, TAU, 20, C_HINT, 1.6, true)
 	if helper:

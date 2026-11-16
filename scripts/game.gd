@@ -29,13 +29,14 @@ const C_RED := Color("e5534b")
 const C_TEAL := Color("4fd1c5")
 
 const TUTORIAL_LINES := [
-	"Welcome to the bomb squad, recruit! Under your fingers is a minefield. Use the arrow keys to move. Go all the way to the left, until you hear a bump.",
-	"Bump! That's the edge. The raised line along the edge has tick marks, one for every step, so you can count where you are. Press C to hear where you are.",
-	"A mine is hidden somewhere. Press Space to ping your detector, then listen.",
-	"Hear the ticks? Fast ticks mean close. Slow ticks mean far. Ticks in your left ear mean go left, right ear means go right. A higher sound means go up, a lower sound means go down. Move, ping again, and when you hear one long beep, you're right on it. Then press Enter to dig.",
-	"You found it! Now, real mines come in patterns. This row is full of them. Find three, and the rest defuse all at once. That's a chain defuse. And listen. That hiss is the fuse. It lights when you move. If it runs out, boom! Go!",
+	"Welcome to the bomb squad, recruit! Use the arrow keys to move your finger. Go left until you hear a bump.",
+	"Bump! That's the edge. Count the tick marks along it to know where you are. Press C to hear where you are.",
+	"A mine is hidden somewhere. Press Space to ping your detector, and listen.",
+	"Hear that? Fast ticks mean close. Slow ticks mean far. Left ear, go left. Right ear, go right. Move, and ping again.",
+	"Now listen to the pitch. Higher means go up. Lower means go down. One long beep means you're on it. Press Enter to dig!",
+	"You found it! Mines come in patterns, and this row is full of them. Find three, and the rest defuse together. Hear that hiss? That's the fuse. Go!",
 ]
-const HINT_LINE := "Beep boop! Two mines found. The saboteur always buries them in a pattern. Feel them. How far across? How far up? Guess where the next one is, and you won't need to ping!"
+const HINT_LINE := "Beep boop! Two mines. They make a pattern. How far across? How far up? Guess the next one. No ping needed!"
 
 var display: TactileDisplay
 var sfx: SfxScript
@@ -146,6 +147,8 @@ func _on_key(e: InputEventKey) -> void:
 		return
 	if debug and k == KEY_F2 and state == State.PLAYING and fuse_lit:
 		fuse = 3.0
+		warned[30] = true
+		warned[10] = true
 		return
 	match state:
 		State.TITLE:
@@ -295,14 +298,14 @@ func _start_level(i: int) -> void:
 		cursor = Vector2i(1, 1)
 		state = State.PLAYING
 		sfx.play("go")
-		speech.say("Mission %d: %s. %d mines. %d pings. %d second fuse. The fuse lights when you move. Good luck!" %
-				[i, level["name"], mines.size(), pings_left, int(fuse_max)])
+		speech.say("Mission %d: %s. %d mines, %d pings. The fuse lights when you move. Go!" %
+				[i, level["name"], mines.size(), pings_left])
 	_refresh()
 
 
 func _start_tutorial_row() -> void:
 	tutorial_phase = 2
-	tut_step = 4
+	tut_step = 5
 	found.clear()
 	dug.clear()
 	hinted = false
@@ -312,7 +315,7 @@ func _start_tutorial_row() -> void:
 	fuse = fuse_max
 	fuse_lit = false
 	state = State.PLAYING
-	speech.say(TUTORIAL_LINES[4])
+	speech.say(TUTORIAL_LINES[5])
 	_refresh()
 
 
@@ -452,7 +455,7 @@ func _ping() -> void:
 				return
 			sfx.play("tick", pan, pitch)
 			await _wait(interval)
-	if serial == ping_serial and tutorial_phase == 1 and tut_step == 2:
+	if serial == ping_serial and tutorial_phase == 1 and (tut_step == 2 or tut_step == 3):
 		_tut_advance()
 
 
@@ -493,7 +496,8 @@ func _dig() -> void:
 			_chain()
 			return
 		speech.say("Mine defused! %d across, %d up." % [at.x, at.y])
-		if found.size() == 2 and not hinted:
+		# The robot hint is scaffolding: it fades out after the first mission.
+		if found.size() == 2 and not hinted and level_index <= 1:
 			hinted = true
 			await _wait(1.9)
 			if state == State.PLAYING:
@@ -593,10 +597,10 @@ func _win() -> void:
 		return
 	var msg: String
 	if tutorial_phase == 2:
-		msg = "Training complete! %s In missions your detector has only a few pings, so spotting the pattern is how you win. Press Enter to start mission one." % level["rule"]
+		msg = "Training complete! %s In missions you only get a few pings, so use the pattern. Press Enter for mission one." % level["rule"]
 	else:
-		msg = "Mission complete! %s You earned %d star%s. Score %d. Press Enter for the next mission." % [
-			level["rule"], s, "" if s == 1 else "s", score]
+		msg = "Mission complete! %s %d star%s! Press Enter for the next mission." % [
+			level["rule"], s, "" if s == 1 else "s"]
 	speech.say(msg)
 
 
@@ -615,7 +619,7 @@ func _boom() -> void:
 	await _wait(1.7)
 	if state != State.BOOMED:
 		return
-	speech.say("Boom! The fuse ran out. Feel the field: every mine is showing now, so you can feel the pattern. Press Enter to try again.")
+	speech.say("Boom! The fuse ran out. Feel the field: now every mine is showing. Press Enter to try again.")
 
 
 func _wait(seconds: float) -> Signal:

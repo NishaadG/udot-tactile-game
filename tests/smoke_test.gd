@@ -56,6 +56,8 @@ func _run() -> void:
 	check(game.tut_step == 2, "C advances tutorial")
 	key(KEY_SPACE); await wait(2.6)
 	check(game.tut_step == 3, "ping advances tutorial")
+	key(KEY_SPACE); await wait(2.6)
+	check(game.tut_step == 4, "second ping teaches pitch")
 	game.cursor = Vector2i(6, 5)
 	key(KEY_ENTER); await wait(1.6)
 	check(game.tutorial_phase == 2 and game.mines.size() == 9, "row lesson: 9 mines on y=3")

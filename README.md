@@ -70,7 +70,7 @@ scripts/tactile_display.gd  pin buffer with throttled refresh and pin-rise anima
 scripts/sfx.gd              procedural sound synthesis + stereo panning
 scripts/speech.gd           text-to-speech wrapper, captions, repeat
 scripts/game.gd             game states, tutorial, detector, digging, chain, fuse, scoring, save
-tests/smoke_test.gd         headless play-through (23 checks)
+tests/smoke_test.gd         headless play-through (24 checks)
 docs/                       design doc (md + pdf), screenshots, demo video script, itch upload guide
 ```
 

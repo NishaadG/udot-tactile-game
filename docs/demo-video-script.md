@@ -1,5 +1,27 @@
 # Mine Line: 3-minute demo video script
 
+**Pre-recorded take:** `build/mine-line-demo.mp4` (2:52, 1280×800) is a full gameplay recording with the game's sound and voice (Windows "Zira" voice standing in for the browser's). It has no narration, so you can record your voiceover on top using the timestamps below. Or record your own take with the setup that follows.
+
+| Time in the take | What happens on screen | Narration beat |
+|---|---|---|
+| 0:00 | Splash, then the title screen with the welcome line | Hook |
+| 0:08 | Training starts | The display |
+| 0:15–0:20 | Helper view off, then on again (quiet: talk over this) | "This is all the child gets" |
+| 0:22 | Bump at the edge, then C for coordinates | It teaches itself |
+| 0:37 | First ping: ticks and ears. 0:47: second ping, pitch | Detector, one rule |
+| 1:00 | First mine found, row lesson | |
+| 1:13 | Two mines, then the robot hint | Core moment |
+| 1:27 | Third mine predicted: chain defuse, fanfare, line melody, stars | |
+| 1:44 | Menu: all missions unlocked, Mission 3 Downhill | Stakes |
+| 1:57 | Two empty digs ("the fuse jumps ahead") | |
+| 2:05 | **BOOM**, then the missed line rises to be felt | |
+| 2:16 | Retry: ping, find two mines, predict the third, chain | Why they come back |
+| 2:38 | Mission complete: 3 stars | |
+| 2:46 | Menu with stars | Close |
+
+---
+
+## Recording your own take
 **Setup:** record the browser game full-screen with system audio on (OBS: Display Capture + Desktop Audio). Clear progress first so Training is the only unlocked mission: in a private/incognito window, or by clearing site data. Use **Shift+U** on the menu to unlock missions when you reach that part. Talk over the gameplay. The *italic lines* are the game's own voice, so pause and let them play.
 
 ---
