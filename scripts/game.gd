@@ -1,11 +1,14 @@
 extends Node2D
 ## Mine Line: a tactile + audio graph game.
 ##
-## A saboteur buries mines on a coordinate grid, always in a pattern (a line).
-## Find mines with a sonar detector; find three and the rest of the line
-## chain-defuses. Spotting the pattern is the winning strategy, and that is
-## the graph lesson: coordinates, "two points make a line", and slope as
-## "up N for every 1 across".
+## A saboteur buries mines along a line, so every column holds exactly one
+## mine. The loop has two halves:
+##   SEARCH:  the detector is always on. Pick a column and slide up/down:
+##            faster ticking = closer, a steady tone = right on it. Dig.
+##   PREDICT: after two mines the detector overheats. Use the pattern
+##            ("1 across, 2 up") to dig the next mine in 3 tries or less.
+##            Right: the whole line chain-defuses. Out of tries: BOOM.
+## Predicting the next point of a line from two points is the graph lesson.
 
 const Config = preload("res://scripts/config.gd")
 const Braille = preload("res://scripts/braille.gd")
@@ -15,6 +18,7 @@ const SpeechScript = preload("res://scripts/speech.gd")
 const Kind = TactileDisplay.Kind
 
 enum State { SPLASH, TITLE, PLAYING, CHAIN, WON, BOOMED, FINISHED }
+enum Phase { SEARCH, OVERHEAT, PREDICT }
 
 const SAVE_PATH := "user://mineline.cfg"
 const SCALE := [0, 2, 4, 7, 9, 12, 14, 16, 19]   # major pentatonic: row -> semitones
@@ -28,59 +32,56 @@ const C_AMBER := Color("f2a541")
 const C_RED := Color("e5534b")
 const C_TEAL := Color("4fd1c5")
 
+# Training: each line teaches one action and waits until the child has done it.
 const TUTORIAL_LINES := [
 	"Welcome to the bomb squad, recruit! Use the arrow keys to move your finger. Go left until you hear a bump.",
-	"Bump! That's the edge. Count the tick marks along it to know where you are. Press C to hear where you are.",
-	"A mine is hidden somewhere. Press Space to ping your detector, and listen.",
-	"Hear that? Fast ticks mean close. Slow ticks mean far. Left ear, go left. Right ear, go right. Move, and ping again.",
-	"Now listen to the pitch. Higher means go up. Lower means go down. One long beep means you're on it. Press Enter to dig!",
-	"You found it! Mines come in patterns, and this row is full of them. Find three, and the rest defuse together. Hear that hiss? That's the fuse. Go!",
+	"Bump! That's the edge. Every column has one mine buried in it. Hear your detector ticking? Move up or down. Faster ticking means closer. Find the steady beep.",
+	"That steady beep means you're right on top of it. Press Enter to dig!",
+	"Mine defused! Now go right, one column, and find the mine in that column.",
 ]
-const HINT_LINE := "Beep boop! Two mines. They make a pattern. How far across? How far up? Guess the next one. No ping needed!"
 
 var display: TactileDisplay
 var sfx: SfxScript
 var speech: SpeechScript
 
 var state: State = State.SPLASH
+var phase: Phase = Phase.SEARCH
 var helper_view := true
 var announce_steps := false     # V: speak the position on every step (for screen-only play)
 var teacher_reveal := false
 
 var level_index := 0
 var level: Dictionary = {}
-var tutorial_phase := 0        # 0 = mission, 1 = single-mine lesson, 2 = row lesson
+var is_training := false
 var tut_step := 0
 var mines: Array[Vector2i] = []
 var found := {}
 var dug := {}
+var search_found: Array[Vector2i] = []
 var cursor := Vector2i(1, 1)
-var pings_left := 0
-var unlimited_pings := false
-var pings_used := 0
+var guesses_left := 0
 var misses := 0
 var fuse := 0.0
 var fuse_max := 0.0
 var has_fuse := false
 var fuse_lit := false
+var detector_on := false
 var tick_timer := 0.0
+var geiger_timer := 0.0
 var warned := {}
-var hinted := false
-var ping_serial := 0
-var last_reading := ""
 var caption := ""
 var title_choice := 0
 var stars := {}
 var best_score := {}
 var result := {}
 var shake := 0.0
-var _last_state: State = State.SPLASH
-var state_time := 0.0
-var _panel_timer := 0.0
-var debug := false              # ?debug in the URL: F2 shortens the fuse          # seconds since the last state change (input lock)
 var display_base := Vector2(44, 62)
+var _last_state: State = State.SPLASH
+var state_time := 0.0          # seconds since the last state change (input lock)
+var _panel_timer := 0.0
+var _serial := 0               # bumps whenever a sequence should be cancelled
+var debug := false             # ?debug in the URL: F2 shortens the fuse
 
-var _panel_box := StyleBoxFlat.new()
 var _caption_box := StyleBoxFlat.new()
 
 
@@ -93,10 +94,6 @@ func _ready() -> void:
 	speech = SpeechScript.new()
 	add_child(speech)
 	speech.said.connect(_on_said)
-	_panel_box.bg_color = Color("14171b")
-	_panel_box.border_color = Color("262b32")
-	_panel_box.set_border_width_all(1)
-	_panel_box.set_corner_radius_all(12)
 	_caption_box.bg_color = Color("1a1e24")
 	_caption_box.set_corner_radius_all(10)
 	_caption_box.border_color = Color("2e343c")
@@ -141,7 +138,7 @@ func _on_key(e: InputEventKey) -> void:
 	if k == KEY_R:
 		speech.repeat()
 		return
-	if k == KEY_V and state != State.SPLASH:
+	if k == KEY_V:
 		announce_steps = not announce_steps
 		speech.say("Announce every step: %s." % ("on" if announce_steps else "off"))
 		return
@@ -168,9 +165,9 @@ func _play_key(k: int) -> void:
 		KEY_RIGHT: _move(Vector2i(1, 0))
 		KEY_UP: _move(Vector2i(0, 1))
 		KEY_DOWN: _move(Vector2i(0, -1))
-		KEY_SPACE: _ping()
-		KEY_ENTER, KEY_KP_ENTER: _dig()
+		KEY_ENTER, KEY_KP_ENTER, KEY_SPACE: _dig()
 		KEY_C: _where()
+		KEY_P: _play_pattern()
 		KEY_ESCAPE: _go_title(false)
 
 
@@ -191,8 +188,6 @@ func _on_mouse_button(e: InputEventMouseButton) -> void:
 				_title_key(KEY_ENTER)
 		State.PLAYING:
 			if e.button_index == MOUSE_BUTTON_LEFT:
-				_ping()
-			elif e.button_index == MOUSE_BUTTON_RIGHT:
 				_dig()
 		State.WON, State.BOOMED, State.FINISHED:
 			if e.button_index == MOUSE_BUTTON_LEFT and state_time > 1.5:
@@ -217,37 +212,31 @@ func _item_text(i: int) -> String:
 
 func _go_title(first: bool) -> void:
 	state = State.TITLE
-	fuse_lit = false
-	sfx.stop_loop()
-	ping_serial += 1
+	_stop_level_audio()
+	_serial += 1
 	title_choice = 0
 	for i in Config.LEVELS.size():
 		if _unlocked(i):
 			title_choice = i
-	var intro := "Welcome to Mine Line! " if first else "Menu. "
 	if first:
 		sfx.play("go")
-	speech.say(intro + "Up and down to choose, Enter to play. " + _item_text(title_choice))
+	speech.say(("Welcome to Mine Line! " if first else "Menu. ") + "Up and down to choose, Enter to play. " + _item_text(title_choice))
 	_refresh()
 
 
 func _title_key(k: int) -> void:
 	var n: int = Config.LEVELS.size()
 	match k:
-		KEY_UP:
-			title_choice = (title_choice - 1 + n) % n
-			sfx.play("blip", 0, 1.0 + title_choice * 0.06)
-			speech.say(_item_text(title_choice))
-		KEY_DOWN:
-			title_choice = (title_choice + 1) % n
+		KEY_UP, KEY_DOWN:
+			title_choice = (title_choice + (-1 if k == KEY_UP else 1) + n) % n
 			sfx.play("blip", 0, 1.0 + title_choice * 0.06)
 			speech.say(_item_text(title_choice))
 		KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
 			if _unlocked(title_choice):
 				_start_level(title_choice)
-			else:
-				sfx.play("blip_low")
-				speech.say("That one is locked. Finish the mission before it first.")
+				return
+			sfx.play("blip_low")
+			speech.say("That one is locked. Finish the mission before it first.")
 		KEY_U:
 			if Input.is_key_pressed(KEY_SHIFT):
 				for i in Config.LEVELS.size() - 1:
@@ -256,7 +245,7 @@ func _title_key(k: int) -> void:
 				sfx.play("star")
 				speech.say("All missions unlocked. " + _item_text(title_choice))
 		KEY_C:
-			speech.say("Mine Line. Find the hidden mines with your detector. They are always buried in a pattern. Up and down to choose a mission, Enter to play. Press R any time to hear the last thing again. Press V to hear your position on every step.")
+			speech.say("Mine Line. Every column hides one mine. Find two with your detector, then guess the rest from the pattern. Up and down to choose a mission, Enter to play. Press R any time to hear the last thing again.")
 	_refresh()
 
 
@@ -266,56 +255,33 @@ func _title_key(k: int) -> void:
 func _start_level(i: int) -> void:
 	level_index = i
 	level = Config.LEVELS[i]
+	is_training = level.get("tutorial", false)
+	mines = _mines_for(level)
 	found.clear()
 	dug.clear()
 	warned.clear()
-	hinted = false
+	search_found.clear()
 	misses = 0
-	pings_used = 0
-	fuse_lit = false
-	ping_serial += 1
-	last_reading = ""
+	guesses_left = Config.GUESSES
+	phase = Phase.SEARCH
 	result = {}
-	sfx.stop_loop()
-	if level.get("tutorial", false):
-		tutorial_phase = 1
-		tut_step = 0
-		mines.clear()
-		mines.append(Config.TUTORIAL_MINE)
-		unlimited_pings = true
-		has_fuse = false
-		cursor = Vector2i(4, 4)
-		state = State.PLAYING
-		speech.say(TUTORIAL_LINES[0])
-	else:
-		tutorial_phase = 0
-		mines = _mines_for(level)
-		unlimited_pings = false
-		pings_left = level["pings"]
-		has_fuse = true
-		fuse_max = level["fuse"]
-		fuse = fuse_max
-		cursor = Vector2i(1, 1)
-		state = State.PLAYING
-		sfx.play("go")
-		speech.say("Mission %d: %s. %d mines, %d pings. The fuse lights when you move. Go!" %
-				[i, level["name"], mines.size(), pings_left])
-	_refresh()
-
-
-func _start_tutorial_row() -> void:
-	tutorial_phase = 2
-	tut_step = 5
-	found.clear()
-	dug.clear()
-	hinted = false
-	mines = _mines_for(level)
-	has_fuse = true
+	_serial += 1
+	_stop_level_audio()
 	fuse_max = level["fuse"]
 	fuse = fuse_max
-	fuse_lit = false
+	has_fuse = fuse_max > 0.0
 	state = State.PLAYING
-	speech.say(TUTORIAL_LINES[5])
+	if is_training:
+		tut_step = 0
+		detector_on = false          # switched on once the child has found the edge
+		cursor = Vector2i(4, 6)
+		speech.say(TUTORIAL_LINES[0])
+	else:
+		detector_on = true
+		cursor = Vector2i(5, 1)       # bottom of the middle column: never on a mine
+		sfx.play("go")
+		speech.say("Mission %d: %s. Find two mines with your detector, then guess the rest. The fuse lights when you move. Go!" %
+				[i, level["name"]])
 	_refresh()
 
 
@@ -328,10 +294,11 @@ func _mines_for(l: Dictionary) -> Array[Vector2i]:
 	return out
 
 
-func _tut_advance(extra_before: String = "") -> void:
-	tut_step += 1
-	if tut_step < TUTORIAL_LINES.size():
-		speech.say((extra_before + " " if extra_before != "" else "") + TUTORIAL_LINES[tut_step])
+func _mine_in_column(x: int) -> Vector2i:
+	for m in mines:
+		if m.x == x:
+			return m
+	return Vector2i(-1, -1)
 
 
 func _continue() -> void:
@@ -342,23 +309,15 @@ func _continue() -> void:
 			else:
 				_finish()
 		State.BOOMED:
-			if tutorial_phase == 2:
-				_start_level(0)
-				_start_tutorial_row()
-			else:
-				_start_level(level_index)
+			_start_level(level_index)
 		State.FINISHED:
 			_go_title(false)
 
 
 func _finish() -> void:
 	state = State.FINISHED
-	var total := 0
-	for v in stars.values():
-		total += v
-	var max_stars := (Config.LEVELS.size() - 1) * 3
 	speech.say("All missions complete! You earned %d out of %d stars. Your rank: %s. Press Enter to go back to the menu, and go for more stars!" %
-			[_mission_stars(), max_stars, _rank()])
+			[_mission_stars(), (Config.LEVELS.size() - 1) * 3, _rank()])
 	sfx.play("win")
 	_refresh()
 
@@ -381,26 +340,39 @@ func _rank() -> String:
 	return "Recruit"
 
 
+func _stop_level_audio() -> void:
+	fuse_lit = false
+	sfx.stop_loop()
+	sfx.stop_tone()
+
+
 # ==========================================================================
-# Core actions
+# Moving and the always-on detector
 
 func _move(d: Vector2i) -> void:
 	var n := cursor + d
 	if n.x < 1 or n.x > Config.FIELD_W or n.y < 1 or n.y > Config.FIELD_H:
-		sfx.play("bump", clampf(float(d.x), -1.0, 1.0) if d.x != 0 else _pan_x(cursor.x), 1.0 + d.y * 0.15)
-		if tutorial_phase == 1 and tut_step == 0:
+		sfx.play("bump", clampf(float(d.x), -1.0, 1.0) if d.x != 0 else _pan_x(cursor.x))
+		if is_training and tut_step == 0:
 			_tut_advance()
 		return
 	_set_cursor(n)
 
 
 func _set_cursor(n: Vector2i) -> void:
+	var new_column := n.x != cursor.x
 	cursor = n
 	_light_fuse()
-	# Moving up the grid literally plays higher notes: height you can hear.
-	sfx.play("step", _pan_x(n.x), _pitch_y(n.y), -3.0)
+	sfx.play("step", _pan_x(n.x), 1.0, -6.0)
 	if announce_steps:
 		speech.say("%d, %d" % [n.x, n.y])
+	elif new_column and phase == Phase.SEARCH and detector_on:
+		var m := _mine_in_column(n.x)
+		if m.x < 0:
+			speech.say("Column %d. No signal here." % n.x)
+		elif found.has(m):
+			speech.say("Column %d. Already defused." % n.x)
+	geiger_timer = 0.0            # react immediately to the new position
 	_refresh(true)
 
 
@@ -409,104 +381,73 @@ func _light_fuse() -> void:
 		fuse_lit = true
 		tick_timer = 0.0
 		sfx.play("light")
-		sfx.start_loop("hiss", -22.0)
+		sfx.start_loop("hiss", -24.0)
 
 
-func _ping() -> void:
-	if not unlimited_pings and pings_left <= 0:
-		sfx.play("empty")
-		speech.say("Detector battery is empty! Use the pattern to find the rest.")
+## Vertical distance to the live mine in the current column, or -1 if none.
+func _detector_distance() -> int:
+	var m := _mine_in_column(cursor.x)
+	if m.x < 0 or found.has(m):
+		return -1
+	return absi(m.y - cursor.y)
+
+
+func _update_detector(delta: float) -> void:
+	var active := state == State.PLAYING and phase == Phase.SEARCH and detector_on
+	var dist := _detector_distance() if active else -1
+	if dist == 0:
+		sfx.start_tone()
+		if is_training and tut_step == 1:
+			_tut_advance()
 		return
-	var target := _nearest_live()
-	if target.x < 0:
+	sfx.stop_tone()
+	if dist < 0:
 		return
-	_light_fuse()
-	if not unlimited_pings:
-		pings_left -= 1
-	pings_used += 1
-	ping_serial += 1
-	var serial := ping_serial
-	var d := target - cursor
-	var dist := Vector2(d).length()
-	sfx.play("ping")
-	_refresh()
-	if dist < 0.01:
-		last_reading = "RIGHT HERE - dig!"
-		queue_redraw()
-		await _wait(0.13)
-		if serial != ping_serial:
-			return
-		sfx.play("lock")
-		await _wait(0.8)
-	else:
-		var t := clampf((dist - 1.0) / 7.0, 0.0, 1.0)
-		var interval := lerpf(0.07, 0.34, t)
-		var pan := clampf(d.x / 3.0, -1.0, 1.0)
-		var pitch := clampf(1.0 + d.y * 0.1, 0.6, 1.8)
-		last_reading = "%s%s%s" % [
-			"close" if dist < 2.5 else ("medium" if dist < 5 else "far"),
-			"" if d.x == 0 else (", left" if d.x < 0 else ", right"),
-			"" if d.y == 0 else (", below" if d.y < 0 else ", above"),
-		]
-		queue_redraw()
-		await _wait(0.13)
-		for i in 5:
-			if serial != ping_serial or state != State.PLAYING:
-				return
-			sfx.play("tick", pan, pitch)
-			await _wait(interval)
-	if serial == ping_serial and tutorial_phase == 1 and (tut_step == 2 or tut_step == 3):
-		_tut_advance()
+	geiger_timer -= delta
+	if geiger_timer <= 0.0:
+		# 1 row away: rapid ticking. 8 rows away: a slow tick every ~0.75 s.
+		geiger_timer = lerpf(0.09, 0.75, clampf((dist - 1) / 7.0, 0.0, 1.0))
+		sfx.play("geiger", 0.0, 1.0, Config.DETECTOR_DB)
 
 
-func _nearest_live() -> Vector2i:
-	var best := Vector2i(-1, -1)
-	var best_d := INF
-	for m in mines:
-		if found.has(m):
-			continue
-		var dd := Vector2(m - cursor).length()
-		if dd < best_d:
-			best_d = dd
-			best = m
-	return best
-
+# ==========================================================================
+# Digging
 
 func _dig() -> void:
+	if state != State.PLAYING or phase == Phase.OVERHEAT:
+		return
 	_light_fuse()
 	var at := cursor
 	if found.has(at):
 		sfx.play("blip_low")
 		speech.say("This mine is already defused.")
 		return
+	if dug.has(at):
+		sfx.play("blip_low")
+		speech.say("You already dug here.")
+		return
+	if phase == Phase.SEARCH:
+		_dig_search(at)
+	else:
+		_dig_predict(at)
+
+
+func _dig_search(at: Vector2i) -> void:
 	if at in mines:
 		found[at] = true
-		ping_serial += 1
-		last_reading = ""
+		search_found.append(at)
+		sfx.stop_tone()
 		sfx.play("found", _pan_x(at.x))
 		_refresh(true)
 		await _wait(0.2)
 		sfx.play("defuse", _pan_x(at.x), _pitch_y(at.y))
-		var remaining := mines.size() - found.size()
-		if remaining == 0:
-			await _wait(0.4)
-			_win()
-			return
-		if found.size() >= Config.CHAIN_AT:
-			_chain()
-			return
-		speech.say("Mine defused! %d across, %d up." % [at.x, at.y])
-		# The robot hint is scaffolding: it fades out after the first mission.
-		if found.size() == 2 and not hinted and level_index <= 1:
-			hinted = true
-			await _wait(1.9)
-			if state == State.PLAYING:
-				sfx.play("chirp")
-				speech.say(HINT_LINE, true, 1.3)
-		return
-	if dug.has(at):
-		sfx.play("blip_low")
-		speech.say("You already dug here. Nothing.")
+		if search_found.size() >= Config.SEARCH_MINES:
+			_overheat()
+		elif is_training and tut_step <= 3:
+			tut_step = 3
+			speech.say(TUTORIAL_LINES[3])
+		else:
+			speech.say("Mine defused! %d across, %d up. Find one more." % [at.x, at.y])
 		return
 	dug[at] = true
 	misses += 1
@@ -514,33 +455,106 @@ func _dig() -> void:
 	sfx.play("miss", _pan_x(at.x))
 	if has_fuse and fuse_lit:
 		fuse = maxf(fuse - Config.MISS_PENALTY, 0.6)
-		speech.say("Nothing here! The fuse jumps ahead.")
+		speech.say("Nothing here! Wait for the steady beep. The fuse jumps ahead.")
 	else:
-		speech.say("Nothing here. Ping again and listen.")
+		speech.say("Nothing here. Wait for the steady beep before you dig.")
 	_refresh(true)
+
+
+func _overheat() -> void:
+	phase = Phase.OVERHEAT
+	_serial += 1
+	var serial := _serial
+	sfx.stop_tone()
+	await _wait(1.0)
+	if serial != _serial:
+		return
+	sfx.play("overheat")
+	speech.say("Uh oh. Your detector is overheating! From now on, you have to guess. Listen to your two mines.")
+	_refresh()
+	await _wait(5.2)
+	if serial != _serial:
+		return
+	await _play_pattern_notes(serial)
+	if serial != _serial:
+		return
+	var a := search_found[0]
+	var b := search_found[1]
+	if a.x > b.x:
+		var t := a
+		a = b
+		b = t
+	phase = Phase.PREDICT
+	speech.say("Mine one: %d across, %d up. Mine two: %d across, %d up. Where's the next mine? Move there and dig. You have %d tries. Press P to hear the pattern again." %
+			[a.x, a.y, b.x, b.y, guesses_left])
+	_refresh()
+
+
+func _dig_predict(at: Vector2i) -> void:
+	if at in mines:
+		found[at] = true
+		sfx.play("found", _pan_x(at.x))
+		_refresh(true)
+		await _wait(0.2)
+		sfx.play("defuse", _pan_x(at.x), _pitch_y(at.y))
+		_chain()
+		return
+	dug[at] = true
+	guesses_left -= 1
+	sfx.play("pop", _pan_x(at.x))
+	shake = 0.25
+	_refresh(true)
+	if guesses_left <= 0:
+		await _wait(0.6)
+		_boom("No tries left.")
+		return
+	var m := _mine_in_column(at.x)
+	var hint := ""
+	if m.x > 0:
+		hint = " The mine in this column is %s." % ("higher" if m.y > at.y else "lower")
+	speech.say("Not there!%s %d tr%s left." % [hint, guesses_left, "y" if guesses_left == 1 else "ies"])
+
+
+## P: replay the found mines left to right as notes. Higher up = higher note.
+func _play_pattern() -> void:
+	if state != State.PLAYING or found.is_empty():
+		return
+	_play_pattern_notes(_serial)
+
+
+func _play_pattern_notes(serial: int) -> void:
+	var pts: Array = found.keys()
+	pts.sort_custom(func(a, b): return a.x < b.x)
+	for m in pts:
+		if serial != _serial:
+			return
+		sfx.play("note", _pan_x(m.x), _pitch_y(m.y))
+		await _wait(0.55)
 
 
 func _where() -> void:
 	var s := "%d across, %d up." % [cursor.x, cursor.y]
-	if tutorial_phase != 1:
-		s += " %d of %d mines found." % [found.size(), mines.size()]
-	if not unlimited_pings:
-		s += " %d ping%s left." % [pings_left, "" if pings_left == 1 else "s"]
+	if phase == Phase.SEARCH:
+		s += " %d of %d mines found with the detector." % [search_found.size(), Config.SEARCH_MINES]
+	else:
+		var pts: Array = found.keys()
+		pts.sort_custom(func(a, b): return a.x < b.x)
+		var parts := []
+		for m in pts:
+			parts.append("%d across %d up" % [m.x, m.y])
+		s += " Your mines: %s. %d tr%s left." % [", ".join(PackedStringArray(parts)), guesses_left, "y" if guesses_left == 1 else "ies"]
 	if fuse_lit:
 		s += " %d seconds on the fuse." % ceili(fuse)
-	if tutorial_phase == 1 and tut_step == 1:
-		_tut_advance(s)
-	else:
-		speech.say(s)
+	speech.say(s)
 
 
 func _chain() -> void:
 	state = State.CHAIN
-	ping_serial += 1
+	_serial += 1
 	await _wait(0.5)
 	sfx.play("chirp")
-	speech.say("Three found! Chain defuse!")
-	await _wait(1.1)
+	speech.say("You found the pattern! Chain defuse!")
+	await _wait(1.6)
 	var rest := mines.filter(func(m): return not found.has(m))
 	rest.sort_custom(func(a, b): return a.x < b.x)
 	for m in rest:
@@ -556,30 +570,20 @@ func _chain() -> void:
 
 
 func _win() -> void:
-	fuse_lit = false
-	sfx.stop_loop()
-	if tutorial_phase == 1:
-		state = State.PLAYING
-		await _wait(0.6)
-		_start_tutorial_row()
-		return
+	_stop_level_audio()
 	state = State.WON
-	var s := 1
-	if misses == 0:
-		s += 1
-	if tutorial_phase == 2 or pings_left * 2 >= int(level["pings"]):
-		s += 1
-	var score := found.size() * 100 + int(fuse) * 10 + pings_left * 25
-	result = {"stars": s, "score": score}
-	if s > stars.get(level_index, 0):
+	var s := guesses_left             # first-guess right = 3 stars
+	var score := s * 1000 + int(fuse) * 10 - misses * 50
+	result = {"stars": s, "score": maxi(score, 0)}
+	if s > stars.get(level_index, -1):
 		stars[level_index] = s
-	if score > best_score.get(level_index, 0):
-		best_score[level_index] = score
+	if result["score"] > best_score.get(level_index, 0):
+		best_score[level_index] = result["score"]
 	_save()
 	_refresh()
 	sfx.play("win")
 	await _wait(0.9)
-	# Play the line back as a melody: left to right, higher rows = higher notes.
+	# Play the whole line back as a melody: left to right, higher rows = higher notes.
 	var line := mines.duplicate()
 	line.sort_custom(func(a, b): return a.x < b.x)
 	for m in line:
@@ -595,22 +599,19 @@ func _win() -> void:
 		await _wait(0.28)
 	if state != State.WON:
 		return
-	var msg: String
-	if tutorial_phase == 2:
-		msg = "Training complete! %s In missions you only get a few pings, so use the pattern. Press Enter for mission one." % level["rule"]
+	var stars_text := "%d star%s" % [s, "" if s == 1 else "s"]
+	if is_training:
+		speech.say("Training complete! %s %s! Press Enter for mission one." % [level["rule"], stars_text])
 	else:
-		msg = "Mission complete! %s %d star%s! Press Enter for the next mission." % [
-			level["rule"], s, "" if s == 1 else "s"]
-	speech.say(msg)
+		speech.say("Mission complete! %s %s! Press Enter for the next mission." % [level["rule"], stars_text])
 
 
-func _boom() -> void:
+func _boom(reason: String = "The fuse ran out.") -> void:
 	print("[GAME] boom")
 	state = State.BOOMED
-	fuse_lit = false
 	fuse = 0.0
-	ping_serial += 1
-	sfx.stop_loop()
+	_serial += 1
+	_stop_level_audio()
 	speech.stop()
 	sfx.play("boom")
 	display.flash(1.0)
@@ -619,11 +620,19 @@ func _boom() -> void:
 	await _wait(1.7)
 	if state != State.BOOMED:
 		return
-	speech.say("Boom! The fuse ran out. Feel the field: now every mine is showing. Press Enter to try again.")
+	speech.say("Boom! %s Feel the field: now every mine is showing. %s Press Enter to try again." % [reason, level["rule"]])
 
 
 func _wait(seconds: float) -> Signal:
 	return get_tree().create_timer(seconds).timeout
+
+
+func _tut_advance() -> void:
+	tut_step += 1
+	if tut_step == 1:
+		detector_on = true
+	if tut_step < TUTORIAL_LINES.size():
+		speech.say(TUTORIAL_LINES[tut_step])
 
 
 # ==========================================================================
@@ -639,6 +648,7 @@ func _process(delta: float) -> void:
 		display.position = display_base + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * 12.0 * maxf(shake, 0.0)
 		if shake <= 0.0:
 			display.position = display_base
+	_update_detector(delta)
 	if state == State.PLAYING and fuse_lit:
 		fuse -= delta
 		for thr in [30, 10]:
@@ -648,8 +658,8 @@ func _process(delta: float) -> void:
 		tick_timer -= delta
 		if tick_timer <= 0.0:
 			tick_timer = 1.0 if fuse > 20 else (0.5 if fuse > 10 else (0.25 if fuse > 5 else 0.13))
-			sfx.play("fuse_tick", 0.0, 1.0 if fuse > 10 else 1.3, -4.0)
-		sfx.set_loop_volume(lerpf(-24.0, -9.0, 1.0 - fuse / fuse_max))
+			sfx.play("fuse_tick", 0.0, 1.0 if fuse > 10 else 1.3, -8.0)
+		sfx.set_loop_volume(lerpf(-26.0, -12.0, 1.0 - fuse / fuse_max))
 		if fuse <= 0.0:
 			_boom()
 		_panel_timer -= delta
@@ -704,8 +714,7 @@ func _refresh(immediate: bool = false) -> void:
 	var P := Config.PINS_PER_CELL
 	var ox := Config.FIELD_OX
 	var oy := Config.FIELD_OY
-	var show_field := state != State.SPLASH
-	if show_field:
+	if state != State.SPLASH:
 		# Axes: y-axis column + x-axis row, with a tick mark per cell.
 		for r in H * P + 1:
 			display.set_pin(ox - 1, oy + r, true, Kind.AXIS)
@@ -723,8 +732,7 @@ func _refresh(immediate: bool = false) -> void:
 		State.SPLASH, State.TITLE:
 			braille = "mine line"
 			if state == State.TITLE:
-				# A sample line to feel on the menu.
-				for m in _mines_for(Config.LEVELS[2]):
+				for m in _mines_for(Config.LEVELS[2]):   # a sample line to feel on the menu
 					_fill_cell(m, Kind.MINE, [1, 2])
 		State.PLAYING, State.CHAIN, State.WON, State.BOOMED:
 			for m in mines:
@@ -750,8 +758,8 @@ func _refresh(immediate: bool = false) -> void:
 				braille = "boom"
 			else:
 				braille = "%d %d" % [cursor.x, cursor.y]
-				if not unlimited_pings:
-					braille += " %d" % pings_left
+				if phase == Phase.PREDICT:
+					braille += " %d" % guesses_left
 		State.FINISHED:
 			braille = "%d star" % _mission_stars()
 	if braille != "":
@@ -808,52 +816,57 @@ func _draw() -> void:
 			if has_fuse:
 				draw_string(font, Vector2(x, y + 12), "FUSE", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, C_DIM)
 				var frac := clampf(fuse / fuse_max, 0.0, 1.0)
-				var bar := Rect2(x + 60, y, PANEL_W - 130, 14)
+				var bar := Rect2(x + 76, y, PANEL_W - 146, 14)
 				draw_rect(bar, Color("23272e"))
 				draw_rect(Rect2(bar.position, Vector2(bar.size.x * frac, bar.size.y)), C_AMBER.lerp(C_RED, 1.0 - frac))
 				var ft := ("%ds" % ceili(fuse)) if fuse_lit or state != State.PLAYING else "unlit"
 				draw_string(font, Vector2(x + PANEL_W - 60, y + 13), ft, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, C_TEXT)
-			y += 34
-			draw_string(font, Vector2(x, y + 12), "PINGS", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, C_DIM)
-			if unlimited_pings:
-				draw_string(font, Vector2(x + 60, y + 13), "unlimited (training)", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, C_TEXT)
-			else:
-				for i in int(level["pings"]):
-					var c := Vector2(x + 68 + i * 22, y + 7)
-					if i < pings_left:
-						draw_circle(c, 7, C_TEAL)
-					else:
-						draw_arc(c, 7, 0, TAU, 20, C_FAINT, 1.5, true)
+				y += 34
+			draw_string(font, Vector2(x, y + 12), "DETECTOR", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, C_DIM)
+			var det := "off (training)"
+			var det_col := C_DIM
+			if phase == Phase.SEARCH and detector_on:
+				var d := _detector_distance()
+				det = "ON  ·  " + ("no signal in this column" if d < 0 else ("RIGHT HERE - dig!" if d == 0 else "%d row%s away" % [d, "" if d == 1 else "s"]))
+				det_col = C_TEAL
+			elif phase != Phase.SEARCH:
+				det = "OVERHEATED - guess from the pattern"
+				det_col = C_RED
+			draw_string(font, Vector2(x + 76, y + 13), det, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, det_col)
 			y += 34
 			draw_string(font, Vector2(x, y + 12), "MINES", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, C_DIM)
-			draw_string(font, Vector2(x + 60, y + 13), "%d / %d defused" % [found.size(), mines.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, C_TEXT)
+			draw_string(font, Vector2(x + 76, y + 13), "%d / %d defused" % [found.size(), mines.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, C_TEXT)
 			y += 34
-			draw_string(font, Vector2(x, y + 12), "FINGER", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, C_DIM)
-			draw_string(font, Vector2(x + 60, y + 13), "(%d, %d)" % [cursor.x, cursor.y], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, C_TEXT)
-			if last_reading != "":
-				draw_string(font, Vector2(x + 150, y + 13), "detector: " + last_reading, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, C_TEAL)
+			draw_string(font, Vector2(x, y + 12), "TRIES", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, C_DIM)
+			for i in Config.GUESSES:
+				var c := Vector2(x + 84 + i * 22, y + 7)
+				if i < guesses_left:
+					draw_circle(c, 7, C_AMBER)
+				else:
+					draw_arc(c, 7, 0, TAU, 20, C_FAINT, 1.5, true)
+			draw_string(font, Vector2(x + 160, y + 13), "FINGER  (%d, %d)" % [cursor.x, cursor.y], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, C_TEXT)
+			y += 30
 			if state == State.WON:
-				_draw_stars(Vector2(x + 4, y + 56), result.get("stars", 0), 16.0)
-				draw_string(font, Vector2(x + 120, y + 64), "score %d" % result.get("score", 0), HORIZONTAL_ALIGNMENT_LEFT, -1, 20, C_TEXT)
+				_draw_stars(Vector2(x + 4, y + 40), result.get("stars", 0), 16.0)
+				draw_string(font, Vector2(x + 120, y + 48), "score %d" % result.get("score", 0), HORIZONTAL_ALIGNMENT_LEFT, -1, 20, C_TEXT)
 			elif state == State.BOOMED:
-				draw_string(font, Vector2(x, y + 66), "BOOM", HORIZONTAL_ALIGNMENT_LEFT, -1, 40, C_RED)
+				draw_string(font, Vector2(x, y + 50), "BOOM", HORIZONTAL_ALIGNMENT_LEFT, -1, 40, C_RED)
 			elif state == State.CHAIN:
-				draw_string(font, Vector2(x, y + 66), "CHAIN DEFUSE", HORIZONTAL_ALIGNMENT_LEFT, -1, 34, C_AMBER)
+				draw_string(font, Vector2(x, y + 50), "CHAIN DEFUSE", HORIZONTAL_ALIGNMENT_LEFT, -1, 34, C_AMBER)
 		State.FINISHED:
 			draw_string(font, Vector2(x, y + 30), "All missions complete", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, C_TEXT)
 			draw_string(font, Vector2(x, y + 64), "Rank: " + _rank(), HORIZONTAL_ALIGNMENT_LEFT, -1, 20, C_AMBER)
 			draw_string(font, Vector2(x, y + 94), "%d / %d stars" % [_mission_stars(), (Config.LEVELS.size() - 1) * 3], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, C_DIM)
 
 	# Caption of the last spoken line.
-	var cap := Rect2(x - 12, 462, PANEL_W, 190)
-	draw_style_box(_caption_box, cap)
+	draw_style_box(_caption_box, Rect2(x - 12, 462, PANEL_W, 190))
 	draw_string(font, Vector2(x + 4, 486), "SPOKEN", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, C_DIM)
 	draw_multiline_string(font, Vector2(x + 4, 512), caption, HORIZONTAL_ALIGNMENT_LEFT, PANEL_W - 32, 16, 8, C_TEXT)
 
 	# Controls legend.
 	var legend := [
-		["Arrows / hover", "move finger"], ["Space / left click", "ping detector"],
-		["Enter / right click", "dig"], ["C", "where am I?"], ["R", "repeat"],
+		["Arrows / hover", "move finger"], ["Enter / Space / click", "dig"],
+		["P", "hear the pattern"], ["C", "where am I?"], ["R", "repeat"],
 		["H", "helper view"], ["Shift+H", "reveal mines"], ["V", "say each step"],
 		["Esc", "menu"],
 	]

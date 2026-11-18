@@ -1,65 +1,32 @@
-# Mine Line: 3-minute demo video script
+# Mine Line: demo video script (under 3 minutes)
 
-**Pre-recorded take:** `build/mine-line-demo.mp4` (2:52, 1280×800) is a full gameplay recording with the game's sound and voice (Windows "Zira" voice standing in for the browser's). It has no narration, so you can record your voiceover on top using the timestamps below. Or record your own take with the setup that follows.
+**Pre-recorded take:** `build/mine-line-demo.mp4` (2:35, 1280×800) is a full gameplay recording with the game's sound and voice (Windows "Zira" voice standing in for the browser's). It has no narration, so record your voiceover on top using the table below. The *Say* lines are suggestions; keep them in your own words.
 
-| Time in the take | What happens on screen | Narration beat |
+| Time | On screen | Say (over the gameplay) |
 |---|---|---|
-| 0:00 | Splash, then the title screen with the welcome line | Hook |
-| 0:08 | Training starts | The display |
-| 0:15–0:20 | Helper view off, then on again (quiet: talk over this) | "This is all the child gets" |
-| 0:22 | Bump at the edge, then C for coordinates | It teaches itself |
-| 0:37 | First ping: ticks and ears. 0:47: second ping, pitch | Detector, one rule |
-| 1:00 | First mine found, row lesson | |
-| 1:13 | Two mines, then the robot hint | Core moment |
-| 1:27 | Third mine predicted: chain defuse, fanfare, line melody, stars | |
-| 1:44 | Menu: all missions unlocked, Mission 3 Downhill | Stakes |
-| 1:57 | Two empty digs ("the fuse jumps ahead") | |
-| 2:05 | **BOOM**, then the missed line rises to be felt | |
-| 2:16 | Retry: ping, find two mines, predict the third, chain | Why they come back |
-| 2:38 | Mission complete: 3 stars | |
-| 2:46 | Menu with stars | Close |
+| 0:00 | Splash, title screen | "This is Mine Line, a game for a blind 10-year-old on uDot's tactile display. A saboteur buries mines along a line, so every column hides one." |
+| 0:08 | Training starts | "It teaches itself. One instruction at a time, and it waits until the kid has done it." |
+| 0:15–0:18 | Helper view **off** (quiet) | "With the helper view off, this is everything the child gets: raised pins. The axes have tick marks to count position, and the bottom row is real braille." |
+| 0:21 | Bump at the edge, detector switches on | "The detector is always on. Up and down a column, the ticking speeds up as you get closer." |
+| 0:34 | Steady beep, dig | "A steady beep means you're on it. One sound, one meaning." |
+| 0:52 | **Detector overheats**, the two mines play as notes | "After two mines, the detector overheats. Now you can't search. You have to use the pattern." |
+| 0:58 | Robot reads back the two mines | "It tells you where your mines are. Both are 3 up, so the next one is too…" |
+| 1:10 | **Chain defuse**, then the line melody and stars | "…and the whole line goes off at once. You hear the line as a melody. The slow pin refresh makes them rise like dominoes." |
+| 1:24 | Menu, Mission 2: Staircase | "Missions add a fuse and harder lines." |
+| 1:41 | Search two mines: 5 across 5 up, then 6 across 6 up | "Two mines: 5 across 5 up, 6 across 6 up. One across, one up." |
+| 2:07 | Wrong guesses: "lower", "higher" | "A wrong guess costs a try, but it still tells you higher or lower." |
+| 2:18 | **BOOM**, then the staircase rises | "Out of tries: BOOM. Then every mine rises, so the kid can feel the staircase they missed, and the rule is said out loud. Losing teaches the answer." |
+| 2:29 | Menu | "Stars are the tries you had left, so the only way to score better is to understand the line. Built in Godot, all sound synthesised in code. The first thing I'd test with kids: can they find a mine by sound alone in under 30 seconds? Thanks!" |
 
 ---
 
-## Recording your own take
-**Setup:** record the browser game full-screen with system audio on (OBS: Display Capture + Desktop Audio). Clear progress first so Training is the only unlocked mission: in a private/incognito window, or by clearing site data. Use **Shift+U** on the menu to unlock missions when you reach that part. Talk over the gameplay. The *italic lines* are the game's own voice, so pause and let them play.
+## Recording your own take instead
 
----
+Record the browser game full-screen with system audio (OBS: Display Capture + Desktop Audio), in a private window so progress starts fresh. Use **Shift+U** on the menu to unlock missions. Follow the same beats:
 
-### 0:00–0:20 · Hook (title screen)
-**Show:** the title screen, then press a key. The game says *"Welcome to Mine Line!"*
-**Say:**
-> "This is Mine Line, a game for a blind 10-year-old on uDot's tactile display. A saboteur buries mines in a field, but always in a pattern. Spot the pattern and you win. The pattern is a line on a graph, so the kid is learning graphs without anyone saying the word."
-
-### 0:20–0:45 · The display
-**Show:** start Training. Press **H** to turn helper view off and on again.
-**Say:**
-> "On the left is a simulation of the pin display. With helper view off, this is everything the child gets: raised pins. The axes have a tick mark every step so they can count where they are. Along the bottom, the status line is real 6-dot braille: x, y, and pings left. The screen only refreshes every fifth of a second, like a real pin display."
-
-### 0:45–1:25 · It teaches itself
-**Show:** follow the tutorial. Move left into the wall (bump), press **C**, press **Space**, follow the ticks, and dig on the long tone.
-**Say (in the gaps):**
-> "Nobody explains the controls up front. The game asks for one action at a time and waits until the child has done it. A bump teaches the edge. C teaches coordinates as '1 across, 4 up'."
-> "This is the detector. Tick speed is distance, left or right ear is direction, and pitch is up or down. And when I move up, my footsteps go up in pitch too. It's one rule everywhere: left/right is stereo, up/down is pitch."
-
-### 1:25–2:00 · The core moment: chain defuse
-**Show:** the row lesson. Dig two mines, let the robot hint play, then dig the third *without pinging*.
-**Say:**
-> "After two mines, the robot sidekick says they make a pattern. If I predict the third one instead of searching for it…"
-> *(let the chain play)*
-> "…the whole line defuses at once, and you hear the line as a melody. This is the payoff, and it only happens when you understand the pattern. The slow refresh helps here: the pins rise one by one, like dominoes."
-
-### 2:00–2:30 · Stakes: the boom
-**Show:** Shift+U on the menu, then start Mission 3 (Downhill). Dig a few wrong spots ("the fuse jumps ahead"), then let it run out. *(Tip: open the URL with `?debug` and press F2 to cut the fuse to 3 seconds.)*
-**Say:**
-> "Missions have a fuse and only a few pings, so guessing blindly costs you. When it runs out… *(BOOM)* …and then every mine rises so the child can feel the line they missed. Losing teaches the answer, and kids immediately want to try again."
-
-### 2:30–2:50 · Why they come back
-**Show:** win a mission: fanfare, line melody, stars. Then the menu with stars.
-**Say:**
-> "Stars come from pings left and no wasted digs, so the kid who understands the graph scores best. Four saboteur patterns, flat, staircase, downhill and steep, each with its own sound, and a rank from Recruit to Bomb Squad Captain."
-
-### 2:50–3:00 · Close
-**Show:** the menu, or the design doc.
-**Say:**
-> "Built in Godot. All sound is synthesised in code, and everything hardware-specific is in one config file, so it's ready to put on the real display. The first thing I'd test with kids: can they find a mine by sound alone in under a minute? Thanks!"
+1. **Hook (0:00–0:15):** title screen and the one-line pitch.
+2. **The display (0:15–0:25):** press H to show what the child gets, then H again.
+3. **Search (0:25–0:50):** bump the left edge, slide down the column to the steady beep, dig. Move right one column and find the second mine.
+4. **Predict (0:50–1:15):** let the overheat and readback play, dig the predicted mine, and enjoy the chain.
+5. **Stakes (1:25–2:25):** Mission 2 (Staircase). Find two mines, then deliberately miss three guesses for the BOOM and the line reveal.
+6. **Close (2:25–2:50):** stars, what you'd test first, thanks.

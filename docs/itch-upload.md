@@ -4,7 +4,7 @@
 
 1. Go to https://itch.io/game/new while logged in.
 2. **Title:** `Mine Line`. **Project URL:** `mine-line` (gives `https://<your-username>.itch.io/mine-line`).
-3. **Short description:** `Find the mines, spot the line. A tactile + audio graph game for blind kids.`
+3. **Short description:** `Find two mines by sound, then guess the rest from the line. A tactile + audio graph game for blind kids.`
 4. **Classification:** Games. **Kind of project:** **HTML** (important).
 5. **Release status:** Released (or Prototype).
 6. **Pricing:** No payments.
@@ -28,12 +28,10 @@ Then put the link in the README (replace "_itch.io link coming soon_") and in yo
 
 **Mine Line** is a game for blind and visually impaired kids, designed for a refreshable tactile (pin) display and prototyped here in the browser.
 
-A saboteur has buried mines across a field, always in a pattern. Find them with a sonar detector before the fuse burns down. Find three and the whole line chain-defuses. Spotting the pattern is how you win, and the pattern is a line on a graph.
+A saboteur has buried mines along a line, so every column hides one. Find two with your detector: it ticks faster the closer you get. Then it overheats, and you have to guess the next mine from the pattern. Guess right and the whole line chain-defuses. Miss three times: BOOM.
 
-**Play with sound on, headphones are best, and try it with your eyes closed.** Start with Training, which teaches itself in about a minute.
+**Play with sound on and your eyes closed.** Headphones help. Start with Training, which teaches itself in about a minute.
 
-**Controls:** Arrows move · Space pings the detector · Enter digs · C: where am I? · R repeats · V speaks every step · H toggles the sighted helper view · Esc for the menu. Mouse works too (hover = finger, left click = ping, right click = dig). Reviewers: Shift+U on the menu unlocks all missions.
-
-**How to listen:** fast ticks mean close. Left ear means left. Higher pitch means up. One long tone means dig!
+**Controls:** Arrows move · Enter digs · P plays your mines as notes · C: where am I? · R repeats · V speaks every step · H toggles the sighted helper view · Esc for the menu. Mouse works too (hover = finger, click = dig). Reviewers: Shift+U on the menu unlocks all missions.
 
 Made with Godot 4. Every sound is synthesised in code. Built for the uDot Braille Tech game-design challenge.

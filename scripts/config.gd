@@ -20,43 +20,45 @@ const REFRESH_INTERVAL := 0.2 # seconds between full-frame pin refreshes (slow t
 const PIN_RISE_TIME := 0.12   # visual: how long a pin takes to rise or fall
 
 # --- Rules ------------------------------------------------------------------
-const CHAIN_AT := 3           # finding this many mines triggers a chain defuse
-const MISS_PENALTY := 5.0     # seconds burned off the fuse for digging an empty spot
-const TUTORIAL_MINE := Vector2i(6, 5)
+const SEARCH_MINES := 2       # mines found with the detector before it overheats
+const GUESSES := 3            # tries to predict the next mine from the pattern
+const MISS_PENALTY := 5.0     # seconds burned off the fuse for an empty dig while searching
+const DETECTOR_DB := -5.0     # Geiger click volume
 
 # --- Levels -----------------------------------------------------------------
 # Mines are every whole-number x in [x_from, x_to] where y = slope * x + offset
-# lands inside the field. pings = detector charges, fuse = seconds.
+# lands inside the field, so each column holds at most one mine (a line is a
+# function). fuse = seconds (0 = no fuse).
 const LEVELS := [
 	{
 		"name": "Training",
 		"tutorial": true,
 		"slope": 0, "offset": 3, "x_from": 1, "x_to": 9,
-		"pings": 0, "fuse": 120.0,
+		"fuse": 0.0,
 		"rule": "Every mine was 3 up. A flat line!",
 	},
 	{
 		"name": "Flat Row",
 		"slope": 0, "offset": 6, "x_from": 1, "x_to": 9,
-		"pings": 6, "fuse": 90.0,
+		"fuse": 90.0,
 		"rule": "Every mine was 6 up. A flat line!",
 	},
 	{
 		"name": "Staircase",
 		"slope": 1, "offset": 0, "x_from": 1, "x_to": 9,
-		"pings": 5, "fuse": 80.0,
+		"fuse": 80.0,
 		"rule": "1 across, 1 up, every time. A staircase line!",
 	},
 	{
 		"name": "Downhill",
 		"slope": -1, "offset": 10, "x_from": 1, "x_to": 9,
-		"pings": 5, "fuse": 75.0,
+		"fuse": 75.0,
 		"rule": "1 across, 1 down, every time. A downhill line!",
 	},
 	{
 		"name": "Steep Stairs",
 		"slope": 2, "offset": -1, "x_from": 1, "x_to": 5,
-		"pings": 4, "fuse": 70.0,
+		"fuse": 70.0,
 		"rule": "1 across, 2 up, every time. The steepest line yet!",
 	},
 ]

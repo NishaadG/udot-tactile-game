@@ -10,6 +10,7 @@ var mono := {}              # name -> PackedFloat32Array (mono samples)
 var cache := {}             # "name:pan:loop" -> AudioStreamWAV
 var players: Array[AudioStreamPlayer] = []
 var loop_player: AudioStreamPlayer
+var tone_player: AudioStreamPlayer      # the detector's steady "you're on it" tone
 var _next := 0
 var _rng := RandomNumberGenerator.new()
 
@@ -22,6 +23,8 @@ func _ready() -> void:
 		players.append(p)
 	loop_player = AudioStreamPlayer.new()
 	add_child(loop_player)
+	tone_player = AudioStreamPlayer.new()
+	add_child(tone_player)
 	_build_all()
 
 
@@ -50,6 +53,18 @@ func set_loop_volume(volume_db: float) -> void:
 
 func stop_loop() -> void:
 	loop_player.stop()
+
+
+func start_tone() -> void:
+	if not tone_player.playing:
+		tone_player.stream = _stream("tone_loop", 0.0, true)
+		tone_player.volume_db = -4.0
+		tone_player.play()
+
+
+func stop_tone() -> void:
+	if tone_player.playing:
+		tone_player.stop()
 
 
 # --------------------------------------------------------------------------
@@ -269,6 +284,32 @@ func _build_all() -> void:
 	_tone(b, 0, 0.12, 420, 420, 14, 0.32, 2)
 	_tone(b, 0.15, 0.2, 300, 280, 10, 0.32, 2)
 	mono["empty"] = b
+
+	# Detector click (Geiger counter). Only its RATE carries meaning: faster = closer.
+	b = _buf(0.03)
+	_noise(b, 0, 0.03, 160, 0.9, 0.85)
+	_tone(b, 0, 0.03, 2200, 1800, 140, 0.25)
+	mono["geiger"] = b
+
+	# Detector lock tone: steady, seamless loop (1000 Hz x 0.5 s = 500 whole cycles).
+	b = _buf(0.5)
+	for i in b.size():
+		var t := float(i) / RATE
+		b[i] = sin(TAU * 1000.0 * t) * (0.22 + 0.06 * sin(TAU * 8.0 * t)) + sin(TAU * 500.0 * t) * 0.1
+	mono["tone_loop"] = b
+
+	# Detector overheating: rising whine + steam.
+	b = _buf(1.4)
+	_tone(b, 0, 1.4, 300, 1700, 0.6, 0.28, 1, 0.05)
+	_noise(b, 0.5, 0.9, 2.2, 0.7, 0.9, 0.5, 0.05)
+	mono["overheat"] = b
+
+	# Wrong guess: a small pop (a mini boom, not the big one).
+	b = _buf(0.7)
+	_noise(b, 0, 0.7, 7, 1.6, 0.25, 0.04)
+	_tone(b, 0, 0.5, 140, 50, 9, 0.7)
+	_soft_clip(b, 1.4)
+	mono["pop"] = b
 
 	# Mission start "go".
 	b = _buf(0.5)
